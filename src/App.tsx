@@ -78,8 +78,23 @@ export default function App() {
 
     // Dynamic address binding - use environment variable for backend URL or default to localhost
     const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000';
+    console.log('🔌 Connecting to backend:', backendUrl);
+    
     const socket: Socket = io(backendUrl, {
       transports: ['websocket', 'polling']
+    });
+
+    // Debug logging
+    socket.on('connect', () => {
+      console.log('✅ Socket connected! ID:', socket.id);
+    });
+
+    socket.on('connect_error', (error) => {
+      console.error('❌ Socket connection error:', error);
+    });
+
+    socket.on('disconnect', (reason) => {
+      console.warn('⚠️ Socket disconnected:', reason);
     });
 
     socketRef.current = socket;
@@ -87,6 +102,7 @@ export default function App() {
 
     // On successful WebSocket connection, join room queue instantly
     socket.on('connect', () => {
+      console.log('📡 Emitting join-room event for room:', targetRoomId);
       socket.emit('join-room', {
         roomId: targetRoomId,
         userName: finalUserName,
@@ -97,6 +113,7 @@ export default function App() {
 
     // Synchronize global Room status
     socket.on('room-status', (updatedRoom: Room) => {
+      console.log('📥 Received room-status:', updatedRoom);
       setRoom(updatedRoom);
     });
 

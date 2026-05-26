@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Debug SyncWatch</title>
+    <style>
+        body { font-family: monospace; padding: 20px; background: #0a0a0a; color: #00ff00; }
+        .test { margin: 10px 0; padding: 10px; border: 1px solid #333; }
+        .success { color: #00ff00; }
+        .error { color: #ff0000; }
+        button { padding: 10px; margin: 5px; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <h1>🔍 SyncWatch Debug</h1>
+    
+    <div class="test">
+        <h3>1. Backend URL:</h3>
+        <div id="backend-url"></div>
+    </div>
+    
+    <div class="test">
+        <h3>2. Backend Health Check:</h3>
+        <button onclick="checkBackend()">Test Backend</button>
+        <div id="backend-status"></div>
+    </div>
+    
+    <div class="test">
+        <h3>3. WebSocket Connection:</h3>
+        <button onclick="testWebSocket()">Test WebSocket</button>
+        <div id="ws-status"></div>
+    </div>
+
+    <script src="https://cdn.socket.io/4.8.3/socket.io.min.js"></script>
+    <script>
+        const BACKEND_URL = 'https://syncwatch-dqhw.onrender.com';
+        
+        document.getElementById('backend-url').innerHTML = `<span class="success">${BACKEND_URL}</span>`;
+        
+        async function checkBackend() {
+            const status = document.getElementById('backend-status');
+            status.innerHTML = 'Testing...';
+            
+            try {
+                const response = await fetch(BACKEND_URL);
+                if (response.ok) {
+                    status.innerHTML = '<span class="success">✅ Backend is reachable!</span>';
+                } else {
+                    status.innerHTML = `<span class="error">❌ Backend returned: ${response.status}</span>`;
+                }
+            } catch (error) {
+                status.innerHTML = `<span class="error">❌ Cannot reach backend: ${error.message}</span>`;
+            }
+        }
+        
+        function testWebSocket() {
+            const status = document.getElementById('ws-status');
+            status.innerHTML = 'Connecting...';
+            
+            const socket = io(BACKEND_URL, {
+                transports: ['websocket', 'polling']
+            });
+            
+            socket.on('connect', () => {
+                status.innerHTML = '<span class="success">✅ WebSocket connected! Socket ID: ' + socket.id + '</span>';
+                
+                // Test join room
+                socket.emit('join-room', {
+                    roomId: 'test-room',
+                    userName: 'Debug User',
+                    userId: 'debug-' + Date.now(),
+                    userAvatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=debug'
+                });
+            });
+            
+            socket.on('room-status', (room) => {
+                status.innerHTML += '<br><span class="success">✅ Received room-status event!</span>';
+                status.innerHTML += '<br>Room: ' + JSON.stringify(room, null, 2);
+            });
+            
+            socket.on('connect_error', (error) => {
+                status.innerHTML = '<span class="error">❌ Connection error: ' + error.message + '</span>';
+            });
+            
+            socket.on('disconnect', () => {
+                status.innerHTML += '<br><span class="error">⚠️ Disconnected</span>';
+            });
+        }
+        
+        // Auto-test on load
+        setTimeout(() => {
+            checkBackend();
+        }, 1000);
+    </script>
+</body>
+</html>
