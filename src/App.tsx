@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, FormEvent } from 'react';
+import { useState, useEffect, useRef, FormEvent, lazy, Suspense } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -18,11 +18,14 @@ import {
   ShieldAlert
 } from 'lucide-react';
 import { Room, PlaybackState } from './types';
-import VideoPlayerContainer from './components/VideoPlayerContainer';
-import VideoSearcher from './components/VideoSearcher';
-import MembersList from './components/MembersList';
-import RoomChat from './components/RoomChat';
-import PlaylistQueue from './components/PlaylistQueue';
+import LoadingScreen from './components/LoadingScreen';
+
+// Lazy load heavy components for better mobile performance
+const VideoPlayerContainer = lazy(() => import('./components/VideoPlayerContainer'));
+const VideoSearcher = lazy(() => import('./components/VideoSearcher'));
+const MembersList = lazy(() => import('./components/MembersList'));
+const RoomChat = lazy(() => import('./components/RoomChat'));
+const PlaylistQueue = lazy(() => import('./components/PlaylistQueue'));
 
 // Persistent client identities
 function getOrCreateUserId(): string {
@@ -55,8 +58,69 @@ export default function App() {
   const [sidebarTab, setSidebarTab] = useState<'chat' | 'playlist' | 'members'>('chat');
   const [isConnecting, setIsConnecting] = useState<boolean>(false);
   const [connectionError, setConnectionError] = useState<string>('');
+  
+  // Backend health check state
+  const [backendReady, setBackendReady] = useState<boolean>(false);
+  const [backendCheckAttempts, setBackendCheckAttempts] = useState<number>(0);
+  const [backendError, setBackendError] = useState<string>('');
 
   const socketRef = useRef<any>(null);
+
+  // Backend health check on app load
+  useEffect(() => {
+    const checkBackendHealth = async () => {
+      const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000';
+      
+      // Skip health check for localhost development
+      if (backendUrl === 'http://localhost:3000' && window.location.hostname === 'localhost') {
+        console.log('🏠 Running on localhost, skipping health check');
+        setBackendReady(true);
+        return;
+      }
+
+      console.log(`🏥 Health check attempt ${backendCheckAttempts + 1} to ${backendUrl}/api/health`);
+      
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 second timeout
+        
+        const response = await fetch(`${backendUrl}/api/health`, {
+          signal: controller.signal,
+          headers: {
+            'Accept': 'application/json'
+          }
+        });
+        
+        clearTimeout(timeoutId);
+        
+        if (response.ok) {
+          const data = await response.json();
+          console.log('✅ Backend is ready:', data);
+          setBackendReady(true);
+          setBackendError('');
+        } else {
+          throw new Error(`Backend returned status ${response.status}`);
+        }
+      } catch (error: any) {
+        console.error('❌ Backend health check failed:', error);
+        
+        const newAttempts = backendCheckAttempts + 1;
+        setBackendCheckAttempts(newAttempts);
+        
+        if (newAttempts >= 10) {
+          // After 10 attempts (about 80 seconds), give up
+          setBackendError('Не удалось подключиться к серверу. Попробуйте обновить страницу через минуту.');
+          setBackendReady(false);
+        } else {
+          // Retry after delay (exponential backoff: 3s, 5s, 8s, 10s...)
+          const delay = Math.min(3000 + newAttempts * 2000, 10000);
+          setTimeout(checkBackendHealth, delay);
+        }
+      }
+    };
+
+    checkBackendHealth();
+  }, [backendCheckAttempts]);
 
   // Check URL query parameters for active invite code
   useEffect(() => {
@@ -87,38 +151,19 @@ export default function App() {
     
     const socket: Socket = io(backendUrl, {
       transports: ['websocket', 'polling'],
-      timeout: 10000,
+      timeout: 15000, // Увеличено до 15 секунд
       reconnection: true,
-      reconnectionAttempts: 5,
-      reconnectionDelay: 1000
-    });
-
-    // Debug logging
-    socket.on('connect', () => {
-      console.log('✅ Socket connected! ID:', socket.id);
-      setIsConnecting(false);
-      setConnectionError('');
-    });
-
-    socket.on('connect_error', (error) => {
-      console.error('❌ Socket connection error:', error);
-      setIsConnecting(false);
-      setConnectionError('Не удалось подключиться к серверу. Проверьте интернет или попробуйте позже.');
-    });
-
-    socket.on('disconnect', (reason) => {
-      console.warn('⚠️ Socket disconnected:', reason);
-      if (reason === 'io server disconnect') {
-        // Server disconnected, try to reconnect
-        socket.connect();
-      }
+      reconnectionAttempts: 10, // Увеличено до 10 попыток
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000, // Максимальная задержка 5 секунд
+      randomizationFactor: 0.5 // Рандомизация для избежания одновременных переподключений
     });
 
     socketRef.current = socket;
     setActiveRoomId(targetRoomId);
 
-    // On successful WebSocket connection, join room queue instantly
-    socket.on('connect', () => {
+    // Функция для присоединения к комнате (используется при connect и reconnect)
+    const joinRoom = () => {
       console.log('📡 Emitting join-room event for room:', targetRoomId);
       socket.emit('join-room', {
         roomId: targetRoomId,
@@ -126,6 +171,67 @@ export default function App() {
         userId: userId,
         userAvatar: avatarUrl
       });
+    };
+
+    // Первое подключение
+    socket.on('connect', () => {
+      console.log('✅ Socket connected! ID:', socket.id);
+      setIsConnecting(false);
+      setConnectionError('');
+      joinRoom(); // Автоматически присоединяемся к комнате
+    });
+
+    // Попытка переподключения
+    socket.io.on('reconnect_attempt', (attemptNumber) => {
+      console.log(`🔄 Reconnection attempt ${attemptNumber}...`);
+      setConnectionError(`Переподключение... (попытка ${attemptNumber}/10)`);
+    });
+
+    // Успешное переподключение
+    socket.io.on('reconnect', (attemptNumber) => {
+      console.log(`✅ Reconnected after ${attemptNumber} attempts`);
+      setConnectionError('');
+      setIsConnecting(false);
+      // joinRoom() будет вызван автоматически через событие 'connect'
+    });
+
+    // Ошибка переподключения
+    socket.io.on('reconnect_error', (error) => {
+      console.error('❌ Reconnection error:', error);
+    });
+
+    // Не удалось переподключиться после всех попыток
+    socket.io.on('reconnect_failed', () => {
+      console.error('❌ Reconnection failed after all attempts');
+      setConnectionError('Потеряно соединение с сервером. Пожалуйста, обновите страницу.');
+      setIsConnecting(false);
+    });
+
+    // Ошибка подключения
+    socket.on('connect_error', (error) => {
+      console.error('❌ Socket connection error:', error);
+      setIsConnecting(false);
+      if (!socket.active) {
+        // Socket не пытается переподключиться
+        setConnectionError('Не удалось подключиться к серверу. Проверьте интернет или попробуйте позже.');
+      }
+    });
+
+    // Отключение
+    socket.on('disconnect', (reason) => {
+      console.warn('⚠️ Socket disconnected:', reason);
+      
+      if (reason === 'io server disconnect') {
+        // Сервер принудительно отключил - переподключаемся
+        setConnectionError('Сервер разорвал соединение. Переподключение...');
+        socket.connect();
+      } else if (reason === 'io client disconnect') {
+        // Клиент сам отключился - не переподключаемся
+        console.log('Client disconnected intentionally');
+      } else if (reason === 'ping timeout' || reason === 'transport close' || reason === 'transport error') {
+        // Проблемы с сетью - Socket.IO автоматически попытается переподключиться
+        setConnectionError('Проблемы с соединением. Переподключение...');
+      }
     });
 
     // Synchronize global Room status
@@ -178,8 +284,6 @@ export default function App() {
     console.log('🎉 Room code generated:', uniqueRoomCode);
     connectToRoom(uniqueRoomCode);
   };
-    connectToRoom(uniqueRoomCode);
-  };
 
   const handleJoinByCode = (e: FormEvent) => {
     e.preventDefault();
@@ -228,6 +332,20 @@ export default function App() {
   };
 
   const isLeader = room ? room.leaderId === userId : false;
+
+  // Show loading screen while backend is not ready
+  if (!backendReady) {
+    return (
+      <LoadingScreen 
+        attempts={backendCheckAttempts} 
+        error={backendError}
+        onRetry={() => {
+          setBackendCheckAttempts(0);
+          setBackendError('');
+        }}
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#050505] text-[#e0e0e0] font-sans selection:bg-indigo-600 selection:text-white relative overflow-x-hidden">
@@ -389,12 +507,24 @@ export default function App() {
                 <div onClick={handleLeaveRoom} className="p-2 rounded-lg bg-white/5 border border-white/10 text-indigo-400 hover:text-white cursor-pointer active:scale-95 transition-all shrink-0">
                   <Tv className="w-4 h-4 sm:w-5 sm:h-5 text-indigo-400" />
                 </div>
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-1.5">
                     <h2 className="text-sm sm:text-base font-bold text-white tracking-tight truncate max-w-[120px] sm:max-w-none">{room.name}</h2>
                     <span className="px-1 py-0.5 rounded bg-indigo-500/10 text-indigo-400 font-mono text-[8px] sm:text-[9px] uppercase font-bold border border-indigo-500/10 shrink-0">
                       {activeRoomId}
                     </span>
+                    {/* Connection status indicator */}
+                    {connectionError ? (
+                      <div className="flex items-center gap-1 px-2 py-0.5 rounded bg-yellow-500/10 border border-yellow-500/20 shrink-0" title={connectionError}>
+                        <div className="w-1.5 h-1.5 rounded-full bg-yellow-500 animate-pulse" />
+                        <span className="hidden sm:inline text-[9px] text-yellow-400 font-mono">Переподключение...</span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20 shrink-0" title="Подключено">
+                        <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                        <span className="hidden md:inline text-[9px] text-emerald-400 font-mono">Онлайн</span>
+                      </div>
+                    )}
                   </div>
                   <p className="text-[10px] sm:text-xs text-zinc-500 mt-0.5 flex items-center gap-1 truncate max-w-[180px] sm:max-w-none">
                     <MonitorPlay className="w-3 h-3 text-zinc-400 shrink-0" />
@@ -441,12 +571,21 @@ export default function App() {
               
               {/* Player container - Row 1, Col 1-3 on Desktop | Top on Mobile */}
               <div className="xl:col-span-3 order-1 flex flex-col gap-4">
-                <VideoPlayerContainer
-                  room={room}
-                  isLeader={isLeader}
-                  socket={socketRef.current}
-                  playbackState={room.playbackState}
-                />
+                <Suspense fallback={
+                  <div className="w-full aspect-video bg-[#0A0A0A] border border-white/10 rounded-xl flex items-center justify-center">
+                    <div className="flex flex-col items-center gap-3">
+                      <div className="w-8 h-8 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+                      <p className="text-sm text-zinc-400">Загрузка плеера...</p>
+                    </div>
+                  </div>
+                }>
+                  <VideoPlayerContainer
+                    room={room}
+                    isLeader={isLeader}
+                    socket={socketRef.current}
+                    playbackState={room.playbackState}
+                  />
+                </Suspense>
               </div>
 
               {/* Right Column (Sidebar Tabs) - Col 4, Row 1-2 on Desktop | Middle on Mobile */}
@@ -479,38 +618,50 @@ export default function App() {
 
                 {/* Grid slot matching active sidebarTab */}
                 <div className="flex-1 flex flex-col overflow-hidden">
-                  {sidebarTab === 'chat' && (
-                    <RoomChat
-                      messages={room.messages}
-                      currentUserId={userId}
-                      socket={socketRef.current}
-                    />
-                  )}
-                  {sidebarTab === 'playlist' && (
-                    <PlaylistQueue
-                      playlist={room.playlist || []}
-                      isLeader={isLeader}
-                      socket={socketRef.current}
-                      currentUserId={userId}
-                    />
-                  )}
-                  {sidebarTab === 'members' && (
-                    <MembersList
-                      members={room.members}
-                      leaderId={room.leaderId}
-                      currentUserId={userId}
-                      socket={socketRef.current}
-                    />
-                  )}
+                  <Suspense fallback={
+                    <div className="flex-1 flex items-center justify-center bg-[#0A0A0A] border border-white/10 rounded-xl">
+                      <div className="w-6 h-6 border-3 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+                    </div>
+                  }>
+                    {sidebarTab === 'chat' && (
+                      <RoomChat
+                        messages={room.messages}
+                        currentUserId={userId}
+                        socket={socketRef.current}
+                      />
+                    )}
+                    {sidebarTab === 'playlist' && (
+                      <PlaylistQueue
+                        playlist={room.playlist || []}
+                        isLeader={isLeader}
+                        socket={socketRef.current}
+                        currentUserId={userId}
+                      />
+                    )}
+                    {sidebarTab === 'members' && (
+                      <MembersList
+                        members={room.members}
+                        leaderId={room.leaderId}
+                        currentUserId={userId}
+                        socket={socketRef.current}
+                      />
+                    )}
+                  </Suspense>
                 </div>
               </div>
 
               {/* Search controller wrapper (Only leader can control, non-leader sees locked) - Row 1, Col 1-3 on Desktop | Bottom on Mobile */}
               <div className="xl:col-span-3 order-3 flex flex-col gap-4">
-                <VideoSearcher
-                  isLeader={isLeader}
-                  socket={socketRef.current}
-                />
+                <Suspense fallback={
+                  <div className="w-full bg-[#0A0A0A] border border-white/10 rounded-xl p-4 flex items-center justify-center">
+                    <div className="w-6 h-6 border-3 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+                  </div>
+                }>
+                  <VideoSearcher
+                    isLeader={isLeader}
+                    socket={socketRef.current}
+                  />
+                </Suspense>
               </div>
 
             </main>

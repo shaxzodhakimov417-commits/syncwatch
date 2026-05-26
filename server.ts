@@ -42,6 +42,15 @@ function getAiClient(): GoogleGenAI {
 
 app.use(express.json());
 
+// Health check endpoint for frontend to verify backend is ready
+app.get("/api/health", (req, res) => {
+  res.json({ 
+    status: "ok", 
+    timestamp: Date.now(),
+    message: "Backend is ready"
+  });
+});
+
 // Helper function to scrape YouTube search results without needing API key
 async function searchYouTubeScrape(query: string): Promise<SearchResult[]> {
   try {
