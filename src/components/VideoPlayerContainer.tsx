@@ -294,58 +294,61 @@ export default function VideoPlayerContainer({
         }
       }
     } else if (isPlayStateChanged || isManualSeek) {
-      // Direct postMessage command syncing when video is the same to prevent iframe reload lag!
+      // For VK/RuTube: reload iframe with new parameters for reliable sync
+      // postMessage doesn't work reliably due to CORS and iframe restrictions
+      console.log('🔄 Reloading iframe for sync:', { isPlayStateChanged, isManualSeek, baseTime });
+      
       lastSyncedStateRef.current = {
         videoId,
         playing: playbackState.playing,
         currentTime: playbackState.currentTime
       };
 
-      const iframe = iframeRef.current;
-      if (iframe && iframe.contentWindow) {
-        try {
-          if (videoSource === 'vk') {
-            if (isPlayStateChanged) {
-              const cmd = playbackState.playing ? 'play' : 'pause';
-              const msgs = [
-                { event: 'command', command: cmd },
-                { type: cmd },
-                { method: cmd },
-                { delegate: 'vkPlayer', command: cmd }
-              ];
-              msgs.forEach(m => {
-                iframe.contentWindow?.postMessage(JSON.stringify(m), '*');
-                iframe.contentWindow?.postMessage(m, '*');
-              });
-            }
-            if (isManualSeek || isPlayStateChanged) {
-              const msgs = [
-                { event: 'command', command: 'seek', params: [baseTime], time: baseTime },
-                { type: 'seek', time: baseTime, seconds: baseTime },
-                { method: 'seekTo', params: [baseTime], value: baseTime },
-                { delegate: 'vkPlayer', command: 'seek', time: baseTime }
-              ];
-              msgs.forEach(m => {
-                iframe.contentWindow?.postMessage(JSON.stringify(m), '*');
-                iframe.contentWindow?.postMessage(m, '*');
-              });
-            }
-          } else if (videoSource === 'rutube') {
-            if (isPlayStateChanged) {
-              const act = playbackState.playing ? 'player:play' : 'player:pause';
-              const playMsg = { type: act, data: {} };
-              iframe.contentWindow.postMessage(JSON.stringify(playMsg), '*');
-              iframe.contentWindow.postMessage(playMsg, '*');
-            }
-            if (isManualSeek || isPlayStateChanged) {
-              const seekMsg = { type: 'player:setCurrentTime', data: { time: baseTime } };
-              iframe.contentWindow.postMessage(JSON.stringify(seekMsg), '*');
-              iframe.contentWindow.postMessage(seekMsg, '*');
-            }
+      if (videoSource === 'vk') {
+        let oid = "";
+        let id = "";
+        let hash = "";
+
+        if (videoId && videoId.includes('_')) {
+          const parts = videoId.split('_');
+          oid = parts[0];
+          id = parts[1];
+          const hashIdx = parts.indexOf('hash');
+          if (hashIdx !== -1 && hashIdx + 1 < parts.length) {
+            hash = parts[hashIdx + 1];
           }
-        } catch (postError) {
-          console.error("Failed to send postMessage to iframe:", postError);
         }
+
+        const targetText = ((videoUrl || "") + " " + (videoId || "")).replace(/&amp;/g, '&');
+        
+        if (!oid || !id) {
+          const match = targetText.match(/(?:video|clip)(-?\d+)_(\d+)/);
+          if (match) {
+            oid = match[1];
+            id = match[2];
+          }
+        }
+
+        if (!hash) {
+          const hashMatch = targetText.match(/[?&]hash=([^&"' \s>]+)/) || targetText.match(/_hash_([^&"' \s>_]+)/) || targetText.match(/hash\=([^&"' \s>]+)/);
+          if (hashMatch) {
+            hash = hashMatch[1];
+          }
+        }
+
+        if (!oid) oid = "-154942004";
+        if (!id) id = "456239102";
+
+        const tParam = baseTime > 0 ? `&t=${Math.floor(baseTime)}` : '';
+        const hashParam = hash ? `&hash=${hash}` : '';
+        const newUrl = `https://vk.com/video_ext.php?oid=${oid}&id=${id}${hashParam}&hd=1&autoplay=${playbackState.playing ? 1 : 0}${tParam}`;
+        console.log('📺 New VK URL:', newUrl);
+        setIframeUrl(newUrl);
+      } else if (videoSource === 'rutube') {
+        const tParam = baseTime > 0 ? `&t=${Math.floor(baseTime)}` : '';
+        const newUrl = `https://rutube.ru/play/embed/${videoId}/?autoplay=${playbackState.playing ? 1 : 0}${tParam}`;
+        console.log('📺 New RuTube URL:', newUrl);
+        setIframeUrl(newUrl);
       }
     } else {
       lastSyncedStateRef.current.currentTime = playbackState.currentTime;
