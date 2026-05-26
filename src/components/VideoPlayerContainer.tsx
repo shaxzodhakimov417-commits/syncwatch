@@ -229,7 +229,7 @@ export default function VideoPlayerContainer({
     const isNewVideo = videoId !== lastSyncedStateRef.current.videoId;
     const isPlayStateChanged = playbackState.playing !== lastSyncedStateRef.current.playing;
     const drift = Math.abs(playbackState.currentTime - lastSyncedStateRef.current.currentTime);
-    const isManualSeek = drift > 5;
+    const isManualSeek = drift > 3; // Reduced from 5 to 3 seconds for better sync
 
     // Compute base target timestamp with elapsed offsets if joining or switching screens late
     const elapsedOffset = (!isLeader && playbackState.playing && playbackState.lastUpdated)
@@ -237,7 +237,18 @@ export default function VideoPlayerContainer({
       : 0;
     const baseTime = Math.max(0, playbackState.currentTime + elapsedOffset);
 
+    console.log('🎬 VK/RuTube Sync Check:', {
+      isNewVideo,
+      isPlayStateChanged,
+      isManualSeek,
+      drift,
+      baseTime,
+      currentTime: playbackState.currentTime,
+      elapsedOffset
+    });
+
     if (isNewVideo || !iframeUrl) {
+      console.log('📺 Loading new video or initial load');
       // Re-construct the accurate URL containing the required autoplay option and start-time stamp
       lastSyncedStateRef.current = {
         videoId,
@@ -354,6 +365,87 @@ export default function VideoPlayerContainer({
       lastSyncedStateRef.current.currentTime = playbackState.currentTime;
     }
   }, [videoId, videoSource, playbackState.playing, playbackState.currentTime, isLeader, iframeUrl]);
+
+  // Periodic sync check for followers (non-leaders) to stay in sync with leader
+  useEffect(() => {
+    if (isLeader || videoSource === 'youtube' || videoSource === 'direct') return;
+    if (!playbackState.playing) return; // Only sync when playing
+
+    const syncInterval = setInterval(() => {
+      const elapsedOffset = playbackState.lastUpdated
+        ? (Date.now() - playbackState.lastUpdated) / 1000
+        : 0;
+      const expectedTime = playbackState.currentTime + elapsedOffset;
+      const currentDisplayTime = hudTime;
+      const drift = Math.abs(expectedTime - currentDisplayTime);
+
+      console.log('⏱️ Periodic sync check:', {
+        expectedTime: Math.floor(expectedTime),
+        currentDisplayTime: Math.floor(currentDisplayTime),
+        drift: Math.floor(drift)
+      });
+
+      // If drift is more than 5 seconds, force resync by reloading iframe
+      if (drift > 5) {
+        console.log('🔄 Drift detected! Forcing resync...');
+        
+        if (videoSource === 'vk') {
+          let oid = "";
+          let id = "";
+          let hash = "";
+
+          if (videoId && videoId.includes('_')) {
+            const parts = videoId.split('_');
+            oid = parts[0];
+            id = parts[1];
+            const hashIdx = parts.indexOf('hash');
+            if (hashIdx !== -1 && hashIdx + 1 < parts.length) {
+              hash = parts[hashIdx + 1];
+            }
+          }
+
+          const targetText = ((videoUrl || "") + " " + (videoId || "")).replace(/&amp;/g, '&');
+          
+          if (!oid || !id) {
+            const match = targetText.match(/(?:video|clip)(-?\d+)_(\d+)/);
+            if (match) {
+              oid = match[1];
+              id = match[2];
+            }
+          }
+
+          if (!hash) {
+            const hashMatch = targetText.match(/[?&]hash=([^&"' \s>]+)/) || targetText.match(/_hash_([^&"' \s>_]+)/) || targetText.match(/hash\=([^&"' \s>]+)/);
+            if (hashMatch) {
+              hash = hashMatch[1];
+            }
+          }
+
+          if (!oid) oid = "-154942004";
+          if (!id) id = "456239102";
+
+          const tParam = expectedTime > 0 ? `&t=${Math.floor(expectedTime)}` : '';
+          const hashParam = hash ? `&hash=${hash}` : '';
+          const newUrl = `https://vk.com/video_ext.php?oid=${oid}&id=${id}${hashParam}&hd=1&autoplay=1${tParam}`;
+          console.log('📺 Reloading VK iframe with time:', Math.floor(expectedTime));
+          setIframeUrl(newUrl);
+        } else if (videoSource === 'rutube') {
+          const tParam = expectedTime > 0 ? `&t=${Math.floor(expectedTime)}` : '';
+          const newUrl = `https://rutube.ru/play/embed/${videoId}/?autoplay=1${tParam}`;
+          console.log('📺 Reloading RuTube iframe with time:', Math.floor(expectedTime));
+          setIframeUrl(newUrl);
+        }
+
+        lastSyncedStateRef.current = {
+          videoId,
+          playing: playbackState.playing,
+          currentTime: expectedTime
+        };
+      }
+    }, 10000); // Check every 10 seconds
+
+    return () => clearInterval(syncInterval);
+  }, [isLeader, videoSource, playbackState.playing, playbackState.currentTime, playbackState.lastUpdated, hudTime, videoId, videoUrl]);
 
   const handleLeaderHudToggle = () => {
     if (!isLeader) return;

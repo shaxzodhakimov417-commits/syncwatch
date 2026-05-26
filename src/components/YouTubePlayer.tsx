@@ -216,9 +216,11 @@ export default function YouTubePlayer({
         player.pauseVideo();
       }
 
-      // Check for alignment. If off by more than 500ms (> 0.5s), auto-resync seek
+      // Check for alignment. If off by more than 2 seconds, auto-resync seek
       const drift = Math.abs(playerTime - newState.currentTime);
-      if (drift > 0.5 && typeof player.seekTo === 'function') {
+      console.log('🎯 YouTube sync check - drift:', drift.toFixed(2), 'seconds');
+      if (drift > 2 && typeof player.seekTo === 'function') {
+        console.log('🔄 Resyncing YouTube to:', newState.currentTime.toFixed(2));
         player.seekTo(newState.currentTime, true);
       }
 
@@ -289,8 +291,9 @@ export default function YouTubePlayer({
             }, 1200);
           }
 
-          // Force seek alignment if drift exceeds 1.5 seconds under active play state
-          if (drift > 1.5 && typeof player.seekTo === 'function') {
+          // Force seek alignment if drift exceeds 2 seconds under active play state
+          if (drift > 2 && typeof player.seekTo === 'function') {
+            console.log('🔄 Periodic resync - drift:', drift.toFixed(2), 'expected:', expectedTime.toFixed(2));
             isRemoteActionRef.current = true;
             lastRemoteActionTimeRef.current = Date.now();
             player.seekTo(expectedTime, true);
