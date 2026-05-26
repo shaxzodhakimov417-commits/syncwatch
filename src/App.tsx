@@ -53,6 +53,8 @@ export default function App() {
   const [room, setRoom] = useState<Room | null>(null);
   const [copied, setCopied] = useState<boolean>(false);
   const [sidebarTab, setSidebarTab] = useState<'chat' | 'playlist' | 'members'>('chat');
+  const [isConnecting, setIsConnecting] = useState<boolean>(false);
+  const [connectionError, setConnectionError] = useState<string>('');
 
   const socketRef = useRef<any>(null);
 
@@ -73,6 +75,9 @@ export default function App() {
 
   // Connect to active room room state via Socket.IO
   const connectToRoom = (targetRoomId: string) => {
+    setIsConnecting(true);
+    setConnectionError('');
+    
     const finalUserName = userName.trim() || `Киноман #${Math.floor(Math.random() * 9000 + 1000)}`;
     localStorage.setItem('watch_party_user_name', finalUserName);
 
@@ -81,20 +86,32 @@ export default function App() {
     console.log('🔌 Connecting to backend:', backendUrl);
     
     const socket: Socket = io(backendUrl, {
-      transports: ['websocket', 'polling']
+      transports: ['websocket', 'polling'],
+      timeout: 10000,
+      reconnection: true,
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000
     });
 
     // Debug logging
     socket.on('connect', () => {
       console.log('✅ Socket connected! ID:', socket.id);
+      setIsConnecting(false);
+      setConnectionError('');
     });
 
     socket.on('connect_error', (error) => {
       console.error('❌ Socket connection error:', error);
+      setIsConnecting(false);
+      setConnectionError('Не удалось подключиться к серверу. Проверьте интернет или попробуйте позже.');
     });
 
     socket.on('disconnect', (reason) => {
       console.warn('⚠️ Socket disconnected:', reason);
+      if (reason === 'io server disconnect') {
+        // Server disconnected, try to reconnect
+        socket.connect();
+      }
     });
 
     socketRef.current = socket;
@@ -146,14 +163,41 @@ export default function App() {
   };
 
   const handleCreateRoom = () => {
+    console.log('🎬 Creating room...');
+    
+    // Check if backend URL is configured
+    const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000';
+    if (backendUrl === 'http://localhost:3000' && window.location.hostname !== 'localhost') {
+      alert('⚠️ Backend не настроен! Пожалуйста, подождите пока сервер запустится (30-60 сек) или обновите страницу.');
+      console.error('Backend URL not configured:', backendUrl);
+      return;
+    }
+    
     // Generate simple descriptive room key
     const uniqueRoomCode = 'party-' + Math.random().toString(36).substring(2, 8);
+    console.log('🎉 Room code generated:', uniqueRoomCode);
+    connectToRoom(uniqueRoomCode);
+  };
     connectToRoom(uniqueRoomCode);
   };
 
   const handleJoinByCode = (e: FormEvent) => {
     e.preventDefault();
-    if (!roomId.trim()) return;
+    console.log('🚪 Joining room:', roomId);
+    
+    if (!roomId.trim()) {
+      alert('⚠️ Введите ID комнаты!');
+      return;
+    }
+    
+    // Check if backend URL is configured
+    const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000';
+    if (backendUrl === 'http://localhost:3000' && window.location.hostname !== 'localhost') {
+      alert('⚠️ Backend не настроен! Пожалуйста, подождите пока сервер запустится (30-60 сек) или обновите страницу.');
+      console.error('Backend URL not configured:', backendUrl);
+      return;
+    }
+    
     connectToRoom(roomId.trim().toLowerCase());
   };
 
@@ -269,13 +313,30 @@ export default function App() {
                     Шаг 2. Вход в Кинозал
                   </span>
 
+                  {/* Connection error message */}
+                  {connectionError && (
+                    <div className="px-4 py-3 rounded-lg bg-red-950/40 border border-red-500/30 text-red-200 text-xs flex items-center gap-2">
+                      <ShieldAlert className="w-4 h-4 text-red-400 shrink-0" />
+                      <span>{connectionError}</span>
+                    </div>
+                  )}
+
+                  {/* Loading indicator */}
+                  {isConnecting && (
+                    <div className="px-4 py-3 rounded-lg bg-indigo-950/40 border border-indigo-500/30 text-indigo-200 text-xs flex items-center gap-2">
+                      <div className="w-4 h-4 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin shrink-0" />
+                      <span>Подключение к серверу... Пожалуйста, подождите.</span>
+                    </div>
+                  )}
+
                   <button
                     onClick={handleCreateRoom}
-                    className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-semibold text-xs transition-all active:scale-95 shadow-xl shadow-indigo-600/10 cursor-pointer flex items-center justify-center gap-2 group tracking-wide font-sans uppercase"
+                    disabled={isConnecting}
+                    className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-semibold text-xs transition-all active:scale-95 shadow-xl shadow-indigo-600/10 cursor-pointer flex items-center justify-center gap-2 group tracking-wide font-sans uppercase disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <Sparkles className="w-4 h-4 text-indigo-200" />
-                    Создать новую комнату
-                    <ChevronRight className="w-4 h-4 text-indigo-300 group-hover:translate-x-0.5 transition-transform" />
+                    {isConnecting ? 'Подключение...' : 'Создать новую комнату'}
+                    {!isConnecting && <ChevronRight className="w-4 h-4 text-indigo-300 group-hover:translate-x-0.5 transition-transform" />}
                   </button>
 
                   <div className="flex items-center gap-3 my-1">
@@ -290,13 +351,15 @@ export default function App() {
                       placeholder="Вбейте ID комнаты (например: party-ab123)"
                       value={roomId}
                       onChange={(e) => setRoomId(e.target.value)}
-                      className="flex-1 bg-black/50 border border-white/10 rounded-xl px-4 text-xs text-zinc-100 placeholder-zinc-500 outline-none focus:border-indigo-500/40 focus:ring-1 focus:ring-indigo-500/10 transition-all font-mono"
+                      disabled={isConnecting}
+                      className="flex-1 bg-black/50 border border-white/10 rounded-xl px-4 text-xs text-zinc-100 placeholder-zinc-500 outline-none focus:border-indigo-500/40 focus:ring-1 focus:ring-indigo-500/10 transition-all font-mono disabled:opacity-50"
                     />
                     <button
                       type="submit"
-                      className="px-5 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 text-zinc-200 hover:text-white text-xs font-semibold cursor-pointer active:scale-95 transition-all text-center shrink-0"
+                      disabled={isConnecting}
+                      className="px-5 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 text-zinc-200 hover:text-white text-xs font-semibold cursor-pointer active:scale-95 transition-all text-center shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      Войти
+                      {isConnecting ? '...' : 'Войти'}
                     </button>
                   </form>
                 </div>
