@@ -76,8 +76,9 @@ export default function App() {
     const finalUserName = userName.trim() || `Киноман #${Math.floor(Math.random() * 9000 + 1000)}`;
     localStorage.setItem('watch_party_user_name', finalUserName);
 
-    // Dynamic address binding relative to workspace root running on port 3000
-    const socket: Socket = io({
+    // Dynamic address binding - use environment variable for backend URL or default to localhost
+    const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000';
+    const socket: Socket = io(backendUrl, {
       transports: ['websocket', 'polling']
     });
 

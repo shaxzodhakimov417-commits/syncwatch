@@ -1,0 +1,30 @@
+# 🔐 Как отправить код на GitHub с токеном
+
+## Шаг 1: Создайте Personal Access Token
+1. Откройте: https://github.com/settings/tokens/new
+2. Note: syncwatch-deploy
+3. Expiration: 90 days
+4. Scopes: поставьте галочку на "repo"
+5. Нажмите "Generate token"
+6. СКОПИРУЙТЕ токен!
+
+## Шаг 2: Используйте токен для push
+
+Выполните в терминале:
+
+git push -u origin main
+
+Когда попросит:
+- Username: shaxzodhakimov417-commits
+- Password: ВСТАВЬТЕ_ВАШ_ТОКЕН (не пароль!)
+
+## Или используйте URL с токеном:
+
+git remote set-url origin https://ВАШ_ТОКЕН@github.com/shaxzodhakimov417-commits/syncwatch.git
+git push -u origin main
+
+## Пример:
+Если ваш токен: ghp_abc123xyz456
+Команда будет:
+git remote set-url origin https://ghp_abc123xyz456@github.com/shaxzodhakimov417-commits/syncwatch.git
+git push -u origin main

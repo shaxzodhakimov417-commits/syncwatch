@@ -1,0 +1,16 @@
+# 🚀 Команды для публикации на GitHub
+# Выполните эти команды в терминале VS Code (Ctrl + `)
+
+# 1. Добавить удалённый репозиторий
+git remote add origin https://github.com/shaxzodhakimov417-commits/syncwatch.git
+
+# 2. Переименовать ветку в main
+git branch -M main
+
+# 3. Отправить код на GitHub
+git push -u origin main
+
+# ===================================
+# После выполнения этих команд ваш проект будет на GitHub!
+# URL: https://github.com/shaxzodhakimov417-commits/syncwatch
+# ===================================

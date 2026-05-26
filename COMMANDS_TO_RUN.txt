@@ -1,0 +1,18 @@
+# Команды для публикации на GitHub
+# Замените YOUR_USERNAME на ваш реальный GitHub username
+
+# 1. Добавить удалённый репозиторий
+git remote add origin https://github.com/YOUR_USERNAME/syncwatch.git
+
+# 2. Переименовать ветку в main
+git branch -M main
+
+# 3. Отправить код на GitHub
+git push -u origin main
+
+# ===================================
+# ПРИМЕР для пользователя "ivan123":
+# ===================================
+# git remote add origin https://github.com/ivan123/syncwatch.git
+# git branch -M main
+# git push -u origin main
