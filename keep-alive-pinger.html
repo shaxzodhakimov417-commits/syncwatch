@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SyncWatch Keep-Alive Pinger</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 40px;
+            max-width: 500px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        }
+        h1 {
+            margin: 0 0 20px 0;
+            font-size: 24px;
+        }
+        .status {
+            padding: 15px;
+            border-radius: 10px;
+            margin: 10px 0;
+            font-size: 14px;
+        }
+        .status.success {
+            background: rgba(16, 185, 129, 0.2);
+            border: 1px solid rgba(16, 185, 129, 0.5);
+        }
+        .status.error {
+            background: rgba(239, 68, 68, 0.2);
+            border: 1px solid rgba(239, 68, 68, 0.5);
+        }
+        .status.info {
+            background: rgba(59, 130, 246, 0.2);
+            border: 1px solid rgba(59, 130, 246, 0.5);
+        }
+        .log {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 10px;
+            padding: 15px;
+            max-height: 300px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            margin-top: 20px;
+        }
+        .log-entry {
+            margin: 5px 0;
+            padding: 5px;
+            border-left: 3px solid rgba(255, 255, 255, 0.3);
+            padding-left: 10px;
+        }
+        .spinner {
+            display: inline-block;
+            width: 14px;
+            height: 14px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🏓 SyncWatch Keep-Alive Pinger</h1>
+        
+        <div id="status" class="status info">
+            <div class="spinner"></div> Инициализация...
+        </div>
+        
+        <div style="margin-top: 20px; font-size: 14px; opacity: 0.8;">
+            <strong>Статистика:</strong><br>
+            Успешных пингов: <span id="successCount">0</span><br>
+            Ошибок: <span id="errorCount">0</span><br>
+            Следующий пинг через: <span id="nextPing">-</span>
+        </div>
+        
+        <div class="log" id="log">
+            <div class="log-entry">Лог пингов появится здесь...</div>
+        </div>
+    </div>
+
+    <script>
+        const BACKEND_URL = 'https://syncwatch-dqhw.onrender.com';
+        const PING_INTERVAL = 10 * 60 * 1000; // 10 минут
+        
+        let successCount = 0;
+        let errorCount = 0;
+        let nextPingTime = Date.now() + PING_INTERVAL;
+
+        function updateStatus(message, type) {
+            const statusEl = document.getElementById('status');
+            statusEl.className = `status ${type}`;
+            statusEl.innerHTML = message;
+        }
+
+        function addLog(message) {
+            const logEl = document.getElementById('log');
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            const timestamp = new Date().toLocaleTimeString('ru-RU');
+            entry.textContent = `[${timestamp}] ${message}`;
+            logEl.insertBefore(entry, logEl.firstChild);
+            
+            // Ограничить лог до 50 записей
+            while (logEl.children.length > 50) {
+                logEl.removeChild(logEl.lastChild);
+            }
+        }
+
+        async function pingBackend() {
+            try {
+                addLog('🏓 Отправка ping...');
+                
+                const startTime = Date.now();
+                const response = await fetch(`${BACKEND_URL}/api/health`, {
+                    method: 'GET',
+                    headers: {
+                        'Accept': 'application/json'
+                    }
+                });
+                const duration = Date.now() - startTime;
+
+                if (response.ok) {
+                    const data = await response.json();
+                    successCount++;
+                    document.getElementById('successCount').textContent = successCount;
+                    
+                    updateStatus(`✅ Backend активен (${duration}ms)`, 'success');
+                    addLog(`✅ Успешный ping за ${duration}ms - статус: ${data.status}`);
+                } else {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+            } catch (error) {
+                errorCount++;
+                document.getElementById('errorCount').textContent = errorCount;
+                
+                updateStatus(`❌ Ошибка: ${error.message}`, 'error');
+                addLog(`❌ Ошибка ping: ${error.message}`);
+            }
+
+            // Запланировать следующий пинг
+            nextPingTime = Date.now() + PING_INTERVAL;
+            setTimeout(pingBackend, PING_INTERVAL);
+        }
+
+        // Обновление таймера до следующего пинга
+        setInterval(() => {
+            const remaining = Math.max(0, nextPingTime - Date.now());
+            const minutes = Math.floor(remaining / 60000);
+            const seconds = Math.floor((remaining % 60000) / 1000);
+            document.getElementById('nextPing').textContent = `${minutes}м ${seconds}с`;
+        }, 1000);
+
+        // Запустить первый пинг сразу
+        addLog('🚀 Pinger запущен');
+        pingBackend();
+    </script>
+</body>
+</html>

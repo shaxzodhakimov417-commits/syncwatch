@@ -51,6 +51,35 @@ app.get("/api/health", (req, res) => {
   });
 });
 
+// Keep-alive mechanism to prevent Render free tier from sleeping
+// Pings itself every 10 minutes to stay awake
+let keepAliveInterval: NodeJS.Timeout | null = null;
+
+function startKeepAlive() {
+  // Only run keep-alive in production (Render)
+  if (process.env.NODE_ENV === 'production' && process.env.RENDER) {
+    const PING_INTERVAL = 10 * 60 * 1000; // 10 minutes
+    
+    keepAliveInterval = setInterval(async () => {
+      try {
+        const url = process.env.RENDER_EXTERNAL_URL || 'http://localhost:3000';
+        console.log(`🏓 Keep-alive ping to ${url}/api/health`);
+        
+        const response = await fetch(`${url}/api/health`);
+        if (response.ok) {
+          console.log('✅ Keep-alive ping successful');
+        } else {
+          console.warn('⚠️ Keep-alive ping failed:', response.status);
+        }
+      } catch (error) {
+        console.error('❌ Keep-alive ping error:', error);
+      }
+    }, PING_INTERVAL);
+    
+    console.log('🔄 Keep-alive mechanism started (ping every 10 minutes)');
+  }
+}
+
 // Helper function to scrape YouTube search results without needing API key
 async function searchYouTubeScrape(query: string): Promise<SearchResult[]> {
   try {
@@ -855,6 +884,9 @@ async function startServer() {
 
   server.listen(PORT, () => {
     console.log(`🚀 Server running on http://localhost:${PORT}`);
+    
+    // Start keep-alive mechanism to prevent sleeping on free tier
+    startKeepAlive();
   });
 }
 
