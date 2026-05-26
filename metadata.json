@@ -1,0 +1,6 @@
+{
+  "name": "Watch Party",
+  "description": "Платформа для совместного просмотра видео онлайн в реальном времени с синхронизацией воспроизведения и чатом.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
