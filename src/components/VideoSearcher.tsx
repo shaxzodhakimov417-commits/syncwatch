@@ -40,8 +40,12 @@ export default function VideoSearcher({ isLeader, socket }: VideoSearcherProps) 
     if (!query.trim()) return;
     setLoading(true);
     try {
-      const response = await fetch(`/api/search?q=${encodeURIComponent(query)}&platform=${platform}`);
+      // Use backend URL from environment variable
+      const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000';
+      console.log('🔍 Searching on backend:', backendUrl);
+      const response = await fetch(`${backendUrl}/api/search?q=${encodeURIComponent(query)}&platform=${platform}`);
       const data = await response.json();
+      console.log('📥 Search results:', data);
       if (Array.isArray(data)) {
         setSearchResults(data);
       }
