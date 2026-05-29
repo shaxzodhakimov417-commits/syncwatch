@@ -18,7 +18,7 @@ const io = new Server(server, {
   }
 });
 
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 
 // Initialize Google GenAI configuration
 let aiClient: GoogleGenAI | null = null;
