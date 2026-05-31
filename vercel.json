@@ -2,5 +2,10 @@
   "buildCommand": "npm run build:vercel",
   "outputDirectory": "dist",
   "framework": "vite",
-  "installCommand": "npm install"
+  "installCommand": "npm install",
+  "build": {
+    "env": {
+      "VITE_BACKEND_URL": "https://lucky-rabbits-listen.loca.lt"
+    }
+  }
 }
