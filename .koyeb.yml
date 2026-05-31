@@ -1,0 +1,20 @@
+app:
+  name: syncwatch-backend
+  services:
+    - name: backend
+      type: web
+      build:
+        type: buildpack
+      instance:
+        type: nano
+      ports:
+        - port: 3000
+          protocol: http
+      env:
+        - key: NODE_ENV
+          value: production
+        - key: PORT
+          value: "3000"
+      routes:
+        - path: /
+          port: 3000
